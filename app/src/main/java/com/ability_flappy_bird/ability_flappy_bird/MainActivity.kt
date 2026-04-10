@@ -4,6 +4,10 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -12,15 +16,18 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -38,13 +45,13 @@ import kotlin.random.Random
 
 // ── Constants ────────────────────────────────────────────────────────────────
 private const val GRAVITY = 0.6f
-private const val FLAP_STRENGTH = -12f
-private const val PIPE_SPEED = 5f
+private const val FLAP_STRENGTH = -15f
+private const val PIPE_SPEED = 3f
 private const val PIPE_WIDTH = 90f
-private const val PIPE_GAP = 230f
-private const val BIRD_RADIUS = 28f
-private const val GROUND_HEIGHT = 80f
-private const val PIPE_SPAWN_EVERY = 85  // frames between spawns
+private const val PIPE_GAP = 520f
+private const val BIRD_RADIUS = 40f
+private const val GROUND_HEIGHT = 50f
+private const val PIPE_SPAWN_EVERY = 205  // frames between spawns
 private const val FRAME_DELAY_MS = 16L   // ~60 fps
 
 // ── Game model ───────────────────────────────────────────────────────────────
@@ -70,29 +77,79 @@ data class GameState(
 }
 
 // ── Activity ─────────────────────────────────────────────────────────────────
+private enum class AppScreen { BLE, GAME }
+
 class MainActivity : ComponentActivity() {
+
+    private lateinit var bleManager: BleManager
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        bleManager = BleManager(this)
         enableEdgeToEdge()
         setContent {
             Ability_flappy_birdTheme {
-                FlappyBirdGame()
+                var screen      by remember { mutableStateOf(AppScreen.BLE) }
+                var emgSettings by remember { mutableStateOf<EmgSettings?>(null) }
+                when (screen) {
+                    AppScreen.BLE  -> BleScreen(
+                        bleManager = bleManager,
+                        onProceed  = { settings ->
+                            emgSettings = settings
+                            screen = AppScreen.GAME
+                        }
+                    )
+                    AppScreen.GAME -> FlappyBirdGame(
+                        bleManager  = bleManager,
+                        emgSettings = emgSettings
+                    )
+                }
             }
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        bleManager.cleanup()
     }
 }
 
 // ── Root composable ───────────────────────────────────────────────────────────
 @Composable
-fun FlappyBirdGame() {
-    var state by remember { mutableStateOf(GameState()) }
+fun FlappyBirdGame(bleManager: BleManager, emgSettings: EmgSettings?) {
+    var state     by remember { mutableStateOf(GameState()) }
+    var emgActive by remember { mutableStateOf(false) }
 
-    // Game loop – runs only while PLAYING
+    // Single collector: feeds history overlay, detects rising edge, and tracks hold
+    val emgHistory = remember { mutableStateListOf<EmgFrame>() }
+    LaunchedEffect(Unit) {
+        var prevAbove = false
+        bleManager.emgFrame.collect { frame ->
+            frame ?: return@collect
+            emgHistory.add(frame)
+            while (emgHistory.size > MAX_PLOT_SAMPLES) emgHistory.removeAt(0)
+            if (emgSettings != null) {
+                val value = when (emgSettings.channel) {
+                    EmgChannel.POSITIVE -> frame.ch1
+                    EmgChannel.NEGATIVE -> frame.ch2
+                }
+                val above = value > emgSettings.threshold
+                // Rising edge → start game / jump / restart (mirrors a screen tap)
+                if (above && !prevAbove) {
+                    state = onTap(state)
+                }
+                emgActive = above
+                prevAbove = above
+            }
+        }
+    }
+
+    // Game loop – runs only while PLAYING; reads emgActive each tick
     LaunchedEffect(state.phase) {
         if (state.phase == GamePhase.PLAYING) {
             while (state.phase == GamePhase.PLAYING) {
                 delay(FRAME_DELAY_MS)
-                state = tick(state)
+                state = tick(state, emgActive)
             }
         }
     }
@@ -115,13 +172,27 @@ fun FlappyBirdGame() {
             drawScene(state)
         }
 
+        // Semi-transparent EMG plot overlay at the top
+        if (emgHistory.isNotEmpty()) {
+            Canvas(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(80.dp)
+                    .align(Alignment.TopCenter)
+                    .alpha(0.65f)
+            ) {
+                drawRect(Color(0xFF001428))   // dark tinted background
+                drawEmgPlot(emgHistory)
+            }
+        }
+
         // Score (only while playing)
         if (state.phase == GamePhase.PLAYING) {
             Text(
                 text = state.score.toString(),
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .padding(top = 56.dp),
+                    .padding(top = 88.dp),
                 fontSize = 52.sp,
                 fontWeight = FontWeight.ExtraBold,
                 color = Color.White
@@ -192,9 +263,13 @@ private fun onTap(state: GameState): GameState = when (state.phase) {
 }
 
 // ── Physics / game tick ───────────────────────────────────────────────────────
-private fun tick(s: GameState): GameState {
-    val newVel = s.birdVel + GRAVITY
-    val newY   = s.birdY  + newVel
+private fun tick(s: GameState, emgActive: Boolean = false): GameState {
+    // Above threshold: gravity still decelerates the jump but velocity is clamped
+    // at 0 so the bird never starts falling while the signal is held.
+    // Below threshold: normal gravity — bird falls until the next jump.
+    val newVel = if (emgActive) (s.birdVel + GRAVITY).coerceAtMost(0f)
+                 else            s.birdVel + GRAVITY
+    val newY   = s.birdY + newVel
     val newFrame = s.frame + 1
 
     // Spawn pipe
