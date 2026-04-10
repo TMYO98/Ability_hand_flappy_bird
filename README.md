@@ -48,7 +48,7 @@ Wait for Gradle sync to finish (bottom status bar).
 1. Plug in your Android device via USB and enable **USB Debugging**
    (`Settings → Developer options → USB Debugging`)
 2. Select your device in the top toolbar device dropdown
-3. Click **Run** ▶ (or press `Shift + F10`)
+3. Click **Run** (or press `Shift + F10`)
 
 ### From the command line
 
