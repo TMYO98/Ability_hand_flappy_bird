@@ -23,15 +23,12 @@ A 80% vibecoded Flappy Bird game controlled by EMG (electromyography) signals fr
 | Kotlin | 2.0.21 |
 | JDK | 11 or newer |
 | Android device or emulator | API 27 (Android 8.1) minimum |
-
-> **BLE note:** Bluetooth Low Energy requires a **physical Android device**. The emulator cannot connect to real BLE peripherals.
-
 ---
 
 ## Clone & open
 
 ```bash
-git clone <repo-url>
+git clone (https://github.com/TMYO98/Ability_hand_flappy_bird.git)
 cd ability_flappy_bird
 ```
 
