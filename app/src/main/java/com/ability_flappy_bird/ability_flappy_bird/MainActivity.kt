@@ -19,7 +19,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.ui.draw.clip
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshotFlow
@@ -119,7 +126,8 @@ class MainActivity : ComponentActivity() {
                     )
                     AppScreen.GAME -> FlappyBirdGame(
                         bleManager  = bleManager,
-                        emgSettings = emgSettings
+                        emgSettings = emgSettings,
+                        onBack      = { screen = AppScreen.BLE }
                     )
                 }
             }
@@ -134,7 +142,7 @@ class MainActivity : ComponentActivity() {
 
 // ── Root composable ───────────────────────────────────────────────────────────
 @Composable
-fun FlappyBirdGame(bleManager: BleManager, emgSettings: EmgSettings?) {
+fun FlappyBirdGame(bleManager: BleManager, emgSettings: EmgSettings?, onBack: () -> Unit) {
     val dualSite = emgSettings?.dualSiteTraining == true
 
     var state     by remember { mutableStateOf(GameState()) }
@@ -222,6 +230,24 @@ fun FlappyBirdGame(bleManager: BleManager, emgSettings: EmgSettings?) {
             val effectiveColor = if (dualSite) { if (activeSide) DUAL_RED else DUAL_BLUE }
                                  else BIRD_DEFAULT
             drawScene(state, effectiveColor)
+        }
+
+        // Back button — top-left, always visible
+        IconButton(
+            onClick = onBack,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(top = 40.dp, start = 12.dp)
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(Color(0x66000000))
+        ) {
+            Icon(
+                imageVector = Icons.Filled.ArrowBack,
+                contentDescription = "Back",
+                tint = Color.White,
+                modifier = Modifier.size(22.dp)
+            )
         }
 
         // Semi-transparent EMG plot overlay at the top
