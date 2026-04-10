@@ -35,7 +35,8 @@ data class EmgSettings(
     val usePositive: Boolean,
     val useNegative: Boolean,
     val thresholdPositive: Float,
-    val thresholdNegative: Float
+    val thresholdNegative: Float,
+    val dualSiteTraining: Boolean = false
 )
 
 data class BleDeviceItem(

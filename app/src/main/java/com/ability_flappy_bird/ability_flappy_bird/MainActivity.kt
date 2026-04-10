@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -53,6 +54,23 @@ private const val BIRD_RADIUS = 40f
 private const val GROUND_HEIGHT = 50f
 private const val PIPE_SPAWN_EVERY = 205  // frames between spawns
 private const val FRAME_DELAY_MS = 16L   // ~60 fps
+
+private val BIRD_DEFAULT = Color(0xFFFFD600)   // yellow
+private val DUAL_RED     = Color(0xFFE53935)   // positive channel
+private val DUAL_BLUE    = Color(0xFF1E88E5)   // negative channel
+
+private fun Color.darken(f: Float) = Color(
+    red   = (red   * (1f - f)).coerceIn(0f, 1f),
+    green = (green * (1f - f)).coerceIn(0f, 1f),
+    blue  = (blue  * (1f - f)).coerceIn(0f, 1f),
+    alpha = alpha
+)
+private fun Color.lighten(f: Float) = Color(
+    red   = (red   + (1f - red)   * f).coerceIn(0f, 1f),
+    green = (green + (1f - green) * f).coerceIn(0f, 1f),
+    blue  = (blue  + (1f - blue)  * f).coerceIn(0f, 1f),
+    alpha = alpha
+)
 
 // ── Game model ───────────────────────────────────────────────────────────────
 enum class GamePhase { WAITING, PLAYING, DEAD }
@@ -117,8 +135,37 @@ class MainActivity : ComponentActivity() {
 // ── Root composable ───────────────────────────────────────────────────────────
 @Composable
 fun FlappyBirdGame(bleManager: BleManager, emgSettings: EmgSettings?) {
+    val dualSite = emgSettings?.dualSiteTraining == true
+
     var state     by remember { mutableStateOf(GameState()) }
     var emgActive by remember { mutableStateOf(false) }
+    // Dual site training: which channel is currently required (positive=red, negative=blue)
+    var activeSide     by remember { mutableStateOf(if (Random.nextBoolean()) true else false) } // true=positive/red
+    var ptsUntilSwitch by remember { mutableStateOf(Random.nextInt(3, 11)) }
+
+    // Watch score — switch active side after a random 3–10 point window
+    LaunchedEffect(dualSite) {
+        if (!dualSite) return@LaunchedEffect
+        var lastScore = 0
+        snapshotFlow { state.score }.collect { score ->
+            when {
+                // Game reset: pick a fresh random side and counter
+                score < lastScore || (score == 0 && lastScore > 0) -> {
+                    activeSide     = Random.nextBoolean()
+                    ptsUntilSwitch = Random.nextInt(3, 11)
+                }
+                // Points scored
+                score > lastScore -> {
+                    ptsUntilSwitch -= (score - lastScore)
+                    if (ptsUntilSwitch <= 0) {
+                        activeSide     = !activeSide
+                        ptsUntilSwitch = Random.nextInt(3, 11)
+                    }
+                }
+            }
+            lastScore = score
+        }
+    }
 
     // Single collector: feeds history overlay, detects rising edge, and tracks hold
     val emgHistory = remember { mutableStateListOf<EmgFrame>() }
@@ -129,9 +176,14 @@ fun FlappyBirdGame(bleManager: BleManager, emgSettings: EmgSettings?) {
             emgHistory.add(frame)
             while (emgHistory.size > MAX_PLOT_SAMPLES) emgHistory.removeAt(0)
             if (emgSettings != null) {
-                val above =
+                val above = if (dualSite) {
+                    // Only the channel matching the current bird colour can fire
+                    if (activeSide) frame.ch1 > emgSettings.thresholdPositive   // red  → CH1
+                    else            frame.ch2 > emgSettings.thresholdNegative   // blue → CH2
+                } else {
                     (emgSettings.usePositive && frame.ch1 > emgSettings.thresholdPositive) ||
                     (emgSettings.useNegative && frame.ch2 > emgSettings.thresholdNegative)
+                }
                 // Rising edge → start game / jump / restart (mirrors a screen tap)
                 if (above && !prevAbove) {
                     state = onTap(state)
@@ -167,7 +219,9 @@ fun FlappyBirdGame(bleManager: BleManager, emgSettings: EmgSettings?) {
             if (state.w == 0f) {
                 state = state.copy(w = size.width, h = size.height, birdY = size.height / 2f)
             }
-            drawScene(state)
+            val effectiveColor = if (dualSite) { if (activeSide) DUAL_RED else DUAL_BLUE }
+                                 else BIRD_DEFAULT
+            drawScene(state, effectiveColor)
         }
 
         // Semi-transparent EMG plot overlay at the top
@@ -201,8 +255,8 @@ fun FlappyBirdGame(bleManager: BleManager, emgSettings: EmgSettings?) {
         if (state.phase != GamePhase.PLAYING) {
             Overlay(
                 modifier = Modifier.align(Alignment.Center),
-                phase = state.phase,
-                score = state.score
+                phase    = state.phase,
+                score    = state.score
             )
         }
     }
@@ -323,7 +377,7 @@ private fun tick(s: GameState, emgActive: Boolean = false): GameState {
 }
 
 // ── Drawing ───────────────────────────────────────────────────────────────────
-private fun DrawScope.drawScene(s: GameState) {
+private fun DrawScope.drawScene(s: GameState, birdColor: Color) {
     if (s.h == 0f) return
 
     // Background clouds (static decorative)
@@ -350,7 +404,7 @@ private fun DrawScope.drawScene(s: GameState) {
 
     // Bird
     val tilt = (s.birdVel * 2.5f).coerceIn(-25f, 70f)
-    drawBird(Offset(s.birdX, s.birdY), tilt)
+    drawBird(Offset(s.birdX, s.birdY), tilt, birdColor)
 }
 
 private fun DrawScope.drawCloud(center: Offset, r: Float) {
@@ -406,21 +460,21 @@ private fun DrawScope.drawPipe(pipe: Pipe, screenH: Float) {
     )
 }
 
-private fun DrawScope.drawBird(center: Offset, tiltDeg: Float) {
+private fun DrawScope.drawBird(center: Offset, tiltDeg: Float, birdColor: Color) {
     rotate(degrees = tiltDeg, pivot = center) {
         // Body
-        drawCircle(Color(0xFFFFD600), BIRD_RADIUS, center)
+        drawCircle(birdColor, BIRD_RADIUS, center)
 
-        // Wing
+        // Wing (darkened tint of body colour)
         drawCircle(
-            color = Color(0xFFFFA000),
+            color  = birdColor.darken(0.28f),
             radius = BIRD_RADIUS * 0.55f,
             center = center + Offset(-BIRD_RADIUS * 0.3f, BIRD_RADIUS * 0.35f)
         )
 
-        // Belly highlight
+        // Belly highlight (lightened tint of body colour)
         drawCircle(
-            color = Color(0xFFFFF176),
+            color  = birdColor.lighten(0.45f),
             radius = BIRD_RADIUS * 0.45f,
             center = center + Offset(BIRD_RADIUS * 0.1f, BIRD_RADIUS * 0.15f)
         )

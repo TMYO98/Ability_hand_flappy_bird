@@ -46,6 +46,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -109,8 +111,9 @@ fun BleScreen(
     val thresholdPositive  by bleManager.thresholdPositive.collectAsState()
     val thresholdNegative  by bleManager.thresholdNegative.collectAsState()
 
-    var usePositive by remember { mutableStateOf(true)  }
-    var useNegative by remember { mutableStateOf(false) }
+    var usePositive      by remember { mutableStateOf(true)  }
+    var useNegative      by remember { mutableStateOf(false) }
+    var dualSiteTraining by remember { mutableStateOf(false) }
 
     // Rolling history for the plot – collected directly from the flow so no
     // frames are dropped between recompositions.
@@ -235,12 +238,14 @@ fun BleScreen(
                 // ── Threshold + channel selection ─────────────────────────────
                 Spacer(Modifier.height(8.dp))
                 ThresholdChannelCard(
-                    thresholdPositive  = thresholdPositive,
-                    thresholdNegative  = thresholdNegative,
-                    usePositive        = usePositive,
-                    useNegative        = useNegative,
+                    thresholdPositive   = thresholdPositive,
+                    thresholdNegative   = thresholdNegative,
+                    usePositive         = usePositive,
+                    useNegative         = useNegative,
+                    dualSiteTraining    = dualSiteTraining,
                     onUsePositiveChange = { usePositive = it },
-                    onUseNegativeChange = { useNegative = it }
+                    onUseNegativeChange = { useNegative = it },
+                    onDualSiteChange    = { dualSiteTraining = it }
                 )
                 Spacer(Modifier.height(8.dp))
                 // ── Live EMG plot ─────────────────────────────────────────────
@@ -255,10 +260,11 @@ fun BleScreen(
                 Button(
                     onClick = {
                         onProceed(EmgSettings(
-                            usePositive        = usePositive,
-                            useNegative        = useNegative,
-                            thresholdPositive  = thresholdPositive ?: Float.MAX_VALUE,
-                            thresholdNegative  = thresholdNegative ?: Float.MAX_VALUE
+                            usePositive       = usePositive,
+                            useNegative       = useNegative,
+                            thresholdPositive = thresholdPositive ?: Float.MAX_VALUE,
+                            thresholdNegative = thresholdNegative ?: Float.MAX_VALUE,
+                            dualSiteTraining  = dualSiteTraining
                         ))
                     },
                     modifier = Modifier
@@ -546,8 +552,10 @@ private fun ThresholdChannelCard(
     thresholdNegative: Float?,
     usePositive: Boolean,
     useNegative: Boolean,
+    dualSiteTraining: Boolean,
     onUsePositiveChange: (Boolean) -> Unit,
-    onUseNegativeChange: (Boolean) -> Unit
+    onUseNegativeChange: (Boolean) -> Unit,
+    onDualSiteChange: (Boolean) -> Unit
 ) {
     val bothLoading = thresholdPositive == null && thresholdNegative == null
 
@@ -606,6 +614,35 @@ private fun ThresholdChannelCard(
                     colors = CheckboxDefaults.colors(checkedColor = ChNegative)
                 )
                 Text("Negative  (CH2)", color = TextPrim, fontSize = 13.sp)
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            // Dual site training toggle
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column {
+                    Text(
+                        text = "DUAL SITE TRAINING",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (dualSiteTraining) AccentOn else TextSub,
+                        letterSpacing = 1.sp
+                    )
+                    Text(
+                        text = "Bird locks to red (CH1) or blue (CH2)",
+                        fontSize = 10.sp,
+                        color = TextSub
+                    )
+                }
+                Switch(
+                    checked = dualSiteTraining,
+                    onCheckedChange = onDualSiteChange,
+                    colors = SwitchDefaults.colors(checkedThumbColor = AccentOn, checkedTrackColor = AccentOn.copy(alpha = 0.4f))
+                )
             }
         }
     }
