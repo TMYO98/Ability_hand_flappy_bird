@@ -129,11 +129,9 @@ fun FlappyBirdGame(bleManager: BleManager, emgSettings: EmgSettings?) {
             emgHistory.add(frame)
             while (emgHistory.size > MAX_PLOT_SAMPLES) emgHistory.removeAt(0)
             if (emgSettings != null) {
-                val value = when (emgSettings.channel) {
-                    EmgChannel.POSITIVE -> frame.ch1
-                    EmgChannel.NEGATIVE -> frame.ch2
-                }
-                val above = value > emgSettings.threshold
+                val above =
+                    (emgSettings.usePositive && frame.ch1 > emgSettings.thresholdPositive) ||
+                    (emgSettings.useNegative && frame.ch2 > emgSettings.thresholdNegative)
                 // Rising edge → start game / jump / restart (mirrors a screen tap)
                 if (above && !prevAbove) {
                     state = onTap(state)

@@ -31,8 +31,12 @@ import java.util.UUID
 // ── Enums / data ──────────────────────────────────────────────────────────────
 
 enum class BleConnectionState { IDLE, SCANNING, CONNECTING, CONNECTED }
-enum class EmgChannel { POSITIVE, NEGATIVE }
-data class EmgSettings(val channel: EmgChannel, val threshold: Float)
+data class EmgSettings(
+    val usePositive: Boolean,
+    val useNegative: Boolean,
+    val thresholdPositive: Float,
+    val thresholdNegative: Float
+)
 
 data class BleDeviceItem(
     val name: String,

@@ -109,7 +109,8 @@ fun BleScreen(
     val thresholdPositive  by bleManager.thresholdPositive.collectAsState()
     val thresholdNegative  by bleManager.thresholdNegative.collectAsState()
 
-    var selectedChannel by remember { mutableStateOf(EmgChannel.POSITIVE) }
+    var usePositive by remember { mutableStateOf(true)  }
+    var useNegative by remember { mutableStateOf(false) }
 
     // Rolling history for the plot – collected directly from the flow so no
     // frames are dropped between recompositions.
@@ -234,10 +235,12 @@ fun BleScreen(
                 // ── Threshold + channel selection ─────────────────────────────
                 Spacer(Modifier.height(8.dp))
                 ThresholdChannelCard(
-                    thresholdPositive = thresholdPositive,
-                    thresholdNegative = thresholdNegative,
-                    selectedChannel   = selectedChannel,
-                    onChannelChange   = { selectedChannel = it }
+                    thresholdPositive  = thresholdPositive,
+                    thresholdNegative  = thresholdNegative,
+                    usePositive        = usePositive,
+                    useNegative        = useNegative,
+                    onUsePositiveChange = { usePositive = it },
+                    onUseNegativeChange = { useNegative = it }
                 )
                 Spacer(Modifier.height(8.dp))
                 // ── Live EMG plot ─────────────────────────────────────────────
@@ -249,12 +252,15 @@ fun BleScreen(
 
             // ── Bottom buttons ────────────────────────────────────────────────
             if (bleState == BleConnectionState.CONNECTED) {
-                val threshold = when (selectedChannel) {
-                    EmgChannel.POSITIVE -> thresholdPositive ?: Float.MAX_VALUE
-                    EmgChannel.NEGATIVE -> thresholdNegative ?: Float.MAX_VALUE
-                }
                 Button(
-                    onClick = { onProceed(EmgSettings(selectedChannel, threshold)) },
+                    onClick = {
+                        onProceed(EmgSettings(
+                            usePositive        = usePositive,
+                            useNegative        = useNegative,
+                            thresholdPositive  = thresholdPositive ?: Float.MAX_VALUE,
+                            thresholdNegative  = thresholdNegative ?: Float.MAX_VALUE
+                        ))
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp),
@@ -538,8 +544,10 @@ private fun EmgPlotCard(history: List<EmgFrame>, modifier: Modifier = Modifier) 
 private fun ThresholdChannelCard(
     thresholdPositive: Float?,
     thresholdNegative: Float?,
-    selectedChannel: EmgChannel,
-    onChannelChange: (EmgChannel) -> Unit
+    usePositive: Boolean,
+    useNegative: Boolean,
+    onUsePositiveChange: (Boolean) -> Unit,
+    onUseNegativeChange: (Boolean) -> Unit
 ) {
     val bothLoading = thresholdPositive == null && thresholdNegative == null
 
@@ -562,22 +570,22 @@ private fun ThresholdChannelCard(
             // Threshold values row
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 ThresholdValue(
-                    label  = "Positive (RD)",
-                    value  = thresholdPositive,
-                    color  = ChPositive
+                    label = "Positive (RD)",
+                    value = thresholdPositive,
+                    color = ChPositive
                 )
                 ThresholdValue(
-                    label  = "Negative (RE)",
-                    value  = thresholdNegative,
-                    color  = ChNegative
+                    label = "Negative (RE)",
+                    value = thresholdNegative,
+                    color = ChNegative
                 )
             }
 
             Spacer(Modifier.height(12.dp))
 
-            // Channel selection checkboxes (mutually exclusive)
+            // Independent channel checkboxes – both can be selected at once
             Text(
-                text = "ACTIVE CHANNEL",
+                text = "ACTIVE CHANNELS",
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
                 color = TextSub,
@@ -586,15 +594,15 @@ private fun ThresholdChannelCard(
             Spacer(Modifier.height(4.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(
-                    checked = selectedChannel == EmgChannel.POSITIVE,
-                    onCheckedChange = { if (it) onChannelChange(EmgChannel.POSITIVE) },
+                    checked = usePositive,
+                    onCheckedChange = onUsePositiveChange,
                     colors = CheckboxDefaults.colors(checkedColor = ChPositive)
                 )
                 Text("Positive  (CH1)", color = TextPrim, fontSize = 13.sp)
                 Spacer(Modifier.width(20.dp))
                 Checkbox(
-                    checked = selectedChannel == EmgChannel.NEGATIVE,
-                    onCheckedChange = { if (it) onChannelChange(EmgChannel.NEGATIVE) },
+                    checked = useNegative,
+                    onCheckedChange = onUseNegativeChange,
                     colors = CheckboxDefaults.colors(checkedColor = ChNegative)
                 )
                 Text("Negative  (CH2)", color = TextPrim, fontSize = 13.sp)
